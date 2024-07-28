@@ -6,3 +6,4 @@ torch
 sentence-transformers
 faiss-cpu
 requests
+graphrag
