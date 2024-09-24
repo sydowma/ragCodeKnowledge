@@ -2,6 +2,7 @@ import os
 import re
 from collections import defaultdict
 
+# generate class diagram from Java code
 class ProjectJavaAnalyzer:
     def __init__(self):
         self.classes = {}
@@ -10,6 +11,10 @@ class ProjectJavaAnalyzer:
         self.imports = {}
         self.method_calls = defaultdict(list)
         self.package_structure = defaultdict(list)
+        self.common_classes = {'String', 'Integer', 'Long', 'Double', 'Float', 'Boolean',
+                               'BigDecimal', 'BigInteger', 'List', 'ArrayList', 'LinkedList',
+                               'Set', 'HashSet', 'TreeSet', 'Map', 'HashMap', 'TreeMap',
+                               'Queue', 'Deque', 'Stack', 'Vector'}
 
     def analyze_project(self, directory):
         for root, _, files in os.walk(directory):
@@ -40,7 +45,8 @@ class ProjectJavaAnalyzer:
         for match in re.finditer(import_pattern, code):
             full_path = match.group(1)
             class_name = full_path.split('.')[-1]
-            self.imports[class_name] = full_path
+            if class_name not in self.common_classes:
+                self.imports[class_name] = full_path
 
     def remove_comments(self, code):
         return re.sub(r'(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*)', '', code)
@@ -54,12 +60,15 @@ class ProjectJavaAnalyzer:
             implements = match.group(8)
 
             if kind == 'class':
-                self.classes[name] = {'methods': [], 'fields': []}
-                if parent:
-                    self.relationships.append((name, parent, 'extends'))
-                if implements:
-                    for interface in implements.split(','):
-                        self.relationships.append((name, interface.strip(), 'implements'))
+                if name not in self.common_classes:
+                    self.classes[name] = {'methods': [], 'fields': []}
+                    if parent and parent not in self.common_classes:
+                        self.relationships.append((name, parent, 'extends'))
+                    if implements:
+                        for interface in implements.split(','):
+                            interface = interface.strip()
+                            if interface not in self.common_classes:
+                                self.relationships.append((name, interface, 'implements'))
             else:
                 self.interfaces[name] = {'methods': []}
 
@@ -72,14 +81,12 @@ class ProjectJavaAnalyzer:
         return match.group(1) if match else ''
 
     def analyze_members(self, class_name, class_code):
-        method_pattern = r'(public|private|protected)?\s+(\w+)\s+(\w+)\s*\([^)]*\)\s*{([^}]*)}'
+        method_pattern = r'(public|private|protected)?\s+(\w+)\s+(\w+)\s*\([^)]*\)'
         field_pattern = r'(public|private|protected)?\s+(\w+)\s+(\w+)\s*;'
 
         for match in re.finditer(method_pattern, class_code):
             method_name = match.group(3)
-            method_body = match.group(4)
             self.classes[class_name]['methods'].append(method_name)
-            self.analyze_method_body(class_name, method_name, method_body)
 
         for match in re.finditer(field_pattern, class_code):
             field_type = match.group(2)
@@ -107,13 +114,6 @@ class ProjectJavaAnalyzer:
 
     def generate_mermaid(self):
         mermaid_code = ["```mermaid", "classDiagram"]
-
-        # Add packages
-        for package, classes in self.package_structure.items():
-            mermaid_code.append(f"    namespace {package} {{")
-            for class_name in classes:
-                mermaid_code.append(f"        class {class_name}")
-            mermaid_code.append("    }")
 
         # Add classes and interfaces
         for name, info in {**self.classes, **self.interfaces}.items():
