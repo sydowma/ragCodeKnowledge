@@ -1,35 +1,53 @@
+import os
 import re
 from collections import defaultdict
 
-
-class ComprehensiveJavaAnalyzer:
-    def __init__(self, code):
-        self.code = code
+class ProjectJavaAnalyzer:
+    def __init__(self):
         self.classes = {}
         self.interfaces = {}
         self.relationships = []
         self.imports = {}
         self.method_calls = defaultdict(list)
+        self.package_structure = defaultdict(list)
 
-    def analyze(self):
-        self.parse_imports()
-        self.remove_comments()
-        self.parse_classes_and_interfaces()
-        self.analyze_method_calls()
+    def analyze_project(self, directory):
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith('.java'):
+                    file_path = os.path.join(root, file)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        code = f.read()
+                    self.analyze_file(code, file_path)
 
-    def parse_imports(self):
+    def analyze_file(self, code, file_path):
+        self.current_file = file_path
+        self.parse_package(code)
+        self.parse_imports(code)
+        self.remove_comments(code)
+        self.parse_classes_and_interfaces(code)
+        self.analyze_method_calls(code)
+
+    def parse_package(self, code):
+        package_match = re.search(r'package\s+([\w.]+);', code)
+        if package_match:
+            package = package_match.group(1)
+            class_name = os.path.basename(self.current_file)[:-5]  # Remove .java
+            self.package_structure[package].append(class_name)
+
+    def parse_imports(self, code):
         import_pattern = r'import\s+([\w.]+)\s*;'
-        for match in re.finditer(import_pattern, self.code):
+        for match in re.finditer(import_pattern, code):
             full_path = match.group(1)
             class_name = full_path.split('.')[-1]
             self.imports[class_name] = full_path
 
-    def remove_comments(self):
-        self.code = re.sub(r'(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*)', '', self.code)
+    def remove_comments(self, code):
+        return re.sub(r'(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*)', '', code)
 
-    def parse_classes_and_interfaces(self):
+    def parse_classes_and_interfaces(self, code):
         class_pattern = r'(public\s+)?(abstract\s+)?(class|interface)\s+(\w+)(\s+extends\s+(\w+))?(\s+implements\s+([\w,\s]+))?'
-        for match in re.finditer(class_pattern, self.code):
+        for match in re.finditer(class_pattern, code):
             name = match.group(4)
             kind = match.group(3)
             parent = match.group(6)
@@ -45,12 +63,12 @@ class ComprehensiveJavaAnalyzer:
             else:
                 self.interfaces[name] = {'methods': []}
 
-            class_code = self.extract_class_code(name)
+            class_code = self.extract_class_code(name, code)
             self.analyze_members(name, class_code)
 
-    def extract_class_code(self, class_name):
+    def extract_class_code(self, class_name, code):
         class_pattern = rf'class\s+{class_name}.*?{{(.*?)}}'
-        match = re.search(class_pattern, self.code, re.DOTALL)
+        match = re.search(class_pattern, code, re.DOTALL)
         return match.group(1) if match else ''
 
     def analyze_members(self, class_name, class_code):
@@ -77,19 +95,25 @@ class ComprehensiveJavaAnalyzer:
             called_method = match.group(2)
             self.method_calls[f"{class_name}.{method_name}"].append(f"{object_name}.{called_method}")
 
-    def analyze_method_calls(self):
+    def analyze_method_calls(self, code):
         for caller, callees in self.method_calls.items():
             caller_class = caller.split('.')[0]
             for callee in callees:
                 callee_parts = callee.split('.')
                 if len(callee_parts) == 2:
                     object_name, method_name = callee_parts
-                    # Check if the object is a known class or imported class
                     if object_name in self.classes or object_name in self.imports:
                         self.relationships.append((caller_class, object_name, 'uses'))
 
     def generate_mermaid(self):
         mermaid_code = ["```mermaid", "classDiagram"]
+
+        # Add packages
+        for package, classes in self.package_structure.items():
+            mermaid_code.append(f"    namespace {package} {{")
+            for class_name in classes:
+                mermaid_code.append(f"        class {class_name}")
+            mermaid_code.append("    }")
 
         # Add classes and interfaces
         for name, info in {**self.classes, **self.interfaces}.items():
@@ -114,67 +138,13 @@ class ComprehensiveJavaAnalyzer:
         mermaid_code.append("```")
         return "\n".join(mermaid_code)
 
-
-def analyze_java_code(code):
-    analyzer = ComprehensiveJavaAnalyzer(code)
-    analyzer.analyze()
+def analyze_java_project(directory):
+    analyzer = ProjectJavaAnalyzer()
+    analyzer.analyze_project(directory)
     return analyzer.generate_mermaid()
 
-
 # 示例使用
-sample_java_code = """
-import java.util.List;
-import com.example.Utility;
-
-public abstract class Animal {
-    protected String name;
-    public abstract void makeSound();
-}
-
-public class Dog extends Animal {
-    private Tail tail;
-    private Utility utility;
-
-    public void makeSound() {
-        System.out.println("Woof!");
-    }
-
-    public void fetch() {
-        utility.doSomething();
-        tail.wag();
-    }
-}
-
-public class Cat extends Animal implements Playful {
-    private List<Toy> toys;
-
-    public void makeSound() {
-        System.out.println("Meow!");
-    }
-
-    public void play() {
-        Toy toy = toys.get(0);
-        toy.use();
-    }
-}
-
-public interface Playful {
-    void play();
-}
-
-public class Tail {
-    private int length;
-    public void wag() {
-        System.out.println("Tail is wagging");
-    }
-}
-
-public class Toy {
-    public void use() {
-        System.out.println("Playing with toy");
-    }
-}
-"""
-
-mermaid_diagram = analyze_java_code(sample_java_code)
+project_directory = ''
+print(project_directory)
+mermaid_diagram = analyze_java_project(project_directory)
 print(mermaid_diagram)
