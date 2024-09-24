@@ -73,6 +73,53 @@ def generate_mindmap_mermaid(text):
     return "\n".join(mermaid_syntax)
 
 
+def extract_key_points(text, num_points=5):
+    sentences = sent_tokenize(text)
+    vectorizer = TfidfVectorizer(stop_words='english')
+    sentence_vectors = vectorizer.fit_transform(sentences)
+
+    kmeans = KMeans(n_clusters=num_points)
+    kmeans.fit(sentence_vectors)
+
+    closest_indices = []
+    for i in range(num_points):
+        distances = np.linalg.norm(sentence_vectors - kmeans.cluster_centers_[i], axis=1)
+        closest_index = np.argmin(distances)
+        closest_indices.append(closest_index)
+
+    key_points = [sentences[i] for i in closest_indices]
+    return key_points
+
+def generate_flowchart(text):
+    summary = summarizer(text, max_length=130, min_length=30, do_sample=False)[0]['summary_text']
+    key_points = extract_key_points(text)
+
+    mermaid_syntax = ["```mermaid", "flowchart TD"]
+    mermaid_syntax.append(f"    A[{clean_text_for_mermaid(summary)}]")
+
+    for i, point in enumerate(key_points, 1):
+        mermaid_syntax.append(f"    A --> B{i}[{clean_text_for_mermaid(point)}]")
+
+    mermaid_syntax.append("```")
+    return "\n".join(mermaid_syntax)
+
+
+def generate_sequence_diagram(text):
+    key_points = extract_key_points(text, num_points=4)  # 减少点数以简化时序图
+
+    mermaid_syntax = ["```mermaid", "sequenceDiagram"]
+    mermaid_syntax.append("    participant Human")
+    mermaid_syntax.append("    participant AI")
+
+    for i, point in enumerate(key_points, 1):
+        if i % 2 == 1:
+            mermaid_syntax.append(f"    Human->>AI: Step {i}")
+        else:
+            mermaid_syntax.append(f"    AI->>Human: {clean_text_for_mermaid(point)}")
+
+    mermaid_syntax.append("```")
+    return "\n".join(mermaid_syntax)
+
 # 示例使用
 sample_text = """
 Artificial intelligence (AI) is intelligence demonstrated by machines, as opposed to natural intelligence displayed by animals including humans. AI research has been defined as the field of study of intelligent agents, which refers to any system that perceives its environment and takes actions that maximize its chance of achieving its goals.
@@ -82,3 +129,9 @@ AI applications include advanced web search engines, recommendation systems, und
 
 mermaid_mindmap = generate_mindmap_mermaid(sample_text)
 print(mermaid_mindmap)
+
+
+print("Flowchart:")
+print(generate_flowchart(sample_text))
+print("\nSequence Diagram:")
+print(generate_sequence_diagram(sample_text))
